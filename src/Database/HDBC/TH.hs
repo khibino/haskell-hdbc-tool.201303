@@ -32,8 +32,7 @@ import Database.HDBC (SqlValue, fromSql, toSql)
 import Language.Haskell.TH
   (Q, Name, mkName, runQ, Ppr, ppr,
    TypeQ, DecQ, Dec,
-   Lit(StringL),
-   appsE, conE, varE, listE, litE,
+   appsE, conE, varE, listE, stringE,
    listP, varP, wildP,
    conT,
    dataD, sigD, funD, valD,
@@ -117,13 +116,19 @@ defineRecordConstructFunction funName' typeName' width = do
       names = map (mkName . ('f':) . show) [1 .. width]
       fromSqlE n = [| fromSql $(varE n) |]
   sig <- sigD funName [t| [SqlValue] -> $(conT typeName) |]
-  var <- funD funName [ clause
-                        [listP (map varP names)]
-                        (normalB . appsE $ conE typeName : map fromSqlE names)
-                        [],
-                        clause [wildP]
-                        (normalB [| error "Generated code of 'defineRecordConstructFunction': Something wrong!" |])
-                        [] ]
+  var <- funD funName
+         [ clause
+           [listP (map varP names)]
+            (normalB . appsE $ conE typeName : map fromSqlE names)
+            [],
+            clause [wildP]
+            (normalB
+             [| error
+                $(stringE
+                  $ "Generated code of 'defineRecordConstructFunction': Fail to pattern match in: "
+                  ++ show funName
+                  ++ ", count of fields is " ++ show width) |])
+            [] ]
   return [sig, var]
 
 defineFromSqlInstance :: VarName -> ConName -> Int -> Q [Dec]
@@ -188,7 +193,7 @@ defineConstantSql name' sqlStr = do
   let name = varName name'
   sig <- sigD name [t| String |]
   var <- valD (varP name)
-         (normalB . litE . StringL $ sqlStr)
+         (normalB . stringE $ sqlStr)
          []
   return [sig, var]
 
