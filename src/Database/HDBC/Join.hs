@@ -1,6 +1,6 @@
 {-# LANGUAGE FlexibleContexts #-}
 
-module Database.HDBC.Tuple (
+module Database.HDBC.Join (
   RecordFromSql, createRecordFromSql,
   takeRecord', width, runToRecord,
 
