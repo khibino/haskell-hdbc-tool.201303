@@ -1,4 +1,5 @@
 {-# LANGUAGE TemplateHaskell #-}
+{-# LANGUAGE FlexibleInstances #-}
 
 module Database.HDBC.TH (
   ConName(conName), toConName,
@@ -41,6 +42,7 @@ import Language.Haskell.TH
 import qualified Language.Haskell.TH.PprLib as TH
 import qualified Language.Haskell.TH.Syntax as TH
 
+import Database.HDBC.Join (createRecordFromSql, FromSql(recordFromSql))
 
 capitalize :: String -> String
 capitalize (c:cs) = toUpper c : cs
@@ -107,12 +109,11 @@ defineRecordType typeName' fields = do
 
 defineRecordConstructFunction :: VarName   -- ^ Name of record construct function.
                               -> ConName   -- ^ Name of record type.
-                              -> [VarName] -- ^ List of field names of record.
+                              -> Int       -- ^ Count of record fields.
                               -> Q [Dec]   -- ^ Declaration of record construct function from SqlValues.
-defineRecordConstructFunction funName' typeName' fields = do
+defineRecordConstructFunction funName' typeName' width = do
   let funName = varName funName'
       typeName = conName typeName'
-      width = length fields
       names = map (mkName . ('f':) . show) [1 .. width]
       fromSqlE n = [| fromSql $(varE n) |]
   sig <- sigD funName [t| [SqlValue] -> $(conT typeName) |]
@@ -124,6 +125,12 @@ defineRecordConstructFunction funName' typeName' fields = do
                         (normalB [| error "Generated code of 'defineRecordConstructFunction': Something wrong!" |])
                         [] ]
   return [sig, var]
+
+defineFromSqlInstance :: VarName -> ConName -> Int -> Q [Dec]
+defineFromSqlInstance funName' typeName' width =
+  [d| instance FromSql $(conT $ conName typeName') where
+        recordFromSql = createRecordFromSql $(varE $ varName funName') width |]
+
 
 defineRecordDecomposeFunction :: VarName   -- ^ Name of record decompose function.
                               -> ConName   -- ^ Name of record type.
@@ -148,7 +155,7 @@ defineRecord :: VarName
 defineRecord cF dF tyC fields = do
   typ  <- defineRecordType tyC fields
   let names = map fst fields
-  fromSQL <- defineRecordConstructFunction cF tyC names
+  fromSQL <- defineRecordConstructFunction cF tyC (length names)
   toSQL   <- defineRecordDecomposeFunction dF tyC names
   return $ typ : fromSQL ++ toSQL
 
