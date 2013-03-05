@@ -3,16 +3,18 @@
 module Database.HDBC.Tuple (
   RecordFromSql, takeRecord, width, toRecord',
 
-  singleton, (<&>)
+  singleton, (<&>),
+
+  outer
   ) where
 
 import Data.Convertible (Convertible)
-import Database.HDBC (SqlValue, fromSql)
+import Database.HDBC (SqlValue(SqlNull), fromSql)
 
 data RecordFromSql a =
   RecordFromSql
   { toRecord' :: [SqlValue] -> a
-  , width    :: !Int
+  , width     :: !Int
   }
 
 takeRecord :: RecordFromSql a -> [SqlValue] -> (a, [SqlValue])
@@ -28,3 +30,8 @@ a <&> b = RecordFromSql { toRecord' = toR, width = width a + width b } where
              in  (ra, fst $ takeRecord b vals')
 
 infixl 4 <&>
+
+outer :: RecordFromSql a -> Int -> RecordFromSql (Maybe a)
+outer rec pkeyIdx = RecordFromSql { toRecord' = mayToRec, width = width rec } where
+  mayToRec vals | vals !! pkeyIdx /= SqlNull = Just . fst $ takeRecord rec vals
+                | otherwise                  = Nothing
