@@ -13,6 +13,7 @@ module Database.HDBC.TH (
   fieldInfo', fieldInfo,
   defineRecordType,
   defineRecordConstructFunction,
+  defineInstanceOfFromSql,
   defineRecordDecomposeFunction,
 
   defineRecord,
@@ -131,8 +132,8 @@ defineRecordConstructFunction funName' typeName' width = do
             [] ]
   return [sig, var]
 
-defineFromSqlInstance :: VarName -> ConName -> Int -> Q [Dec]
-defineFromSqlInstance funName' typeName' width =
+defineInstanceOfFromSql :: VarName -> ConName -> Int -> Q [Dec]
+defineInstanceOfFromSql funName' typeName' width =
   [d| instance FromSql $(conT $ conName typeName') where
         recordFromSql = createRecordFromSql $(varE $ varName funName') width |]
 
@@ -160,9 +161,11 @@ defineRecord :: VarName
 defineRecord cF dF tyC fields = do
   typ  <- defineRecordType tyC fields
   let names = map fst fields
-  fromSQL <- defineRecordConstructFunction cF tyC (length names)
+      width = length names
+  fromSQL <- defineRecordConstructFunction cF tyC width
+  instSQL <- defineInstanceOfFromSql cF tyC width
   toSQL   <- defineRecordDecomposeFunction dF tyC names
-  return $ typ : fromSQL ++ toSQL
+  return $ typ : fromSQL ++ instSQL ++ toSQL
 
 defineRecordDefault :: String
                     -> [(String, TypeQ)]
