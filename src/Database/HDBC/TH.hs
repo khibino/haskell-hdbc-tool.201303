@@ -35,13 +35,11 @@ import Language.Haskell.TH
    appsE, conE, varE, listE, litE,
    listP, varP, wildP,
    conT,
-   sigD, funD, valD,
-   clause, normalB)
+   dataD, sigD, funD, valD,
+   clause, normalB,
+   recC, cxt, varStrictType, strictType, isStrict)
 import qualified Language.Haskell.TH.PprLib as TH
 import qualified Language.Haskell.TH.Syntax as TH
-
-import Language.Haskell.TH
-  (dataD, cxt, recC, varStrictType, strictType, isStrict)
 
 
 capitalize :: String -> String
