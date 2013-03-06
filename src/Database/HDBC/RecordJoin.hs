@@ -1,3 +1,4 @@
+{-# LANGUAGE FlexibleContexts #-}
 
 module Database.HDBC.RecordJoin (
   Record, unRecord, record,
@@ -5,7 +6,7 @@ module Database.HDBC.RecordJoin (
   RecordFromSql, runTakeRecord,
   createRecordFromSql,
 
-  recordGetter,
+  recordDeSerializer,
 
   (<&>),
 
@@ -18,6 +19,14 @@ module Database.HDBC.RecordJoin (
   FromSql (recordFromSql),
   takeRecord,
 
+  RecordToSql, fromRecord,
+  createRecordToSql,
+
+  recordSerializer,
+
+  ToSql (recordToSql),
+
+  updateValues',
   updateValues
   ) where
 
@@ -48,8 +57,8 @@ createRecordFromSql takeF = createRecordFromSql' takeF'  where
   takeF' vals = let (a, vals') = takeF vals
                in  (record a, vals')
 
-recordGetter :: PersistableRecord a -> RecordFromSql (Record a)
-recordGetter =  createRecordFromSql . Persistable.takeRecord
+recordDeSerializer :: PersistableRecord a -> RecordFromSql (Record a)
+recordDeSerializer =  createRecordFromSql . Persistable.takeRecord
 
 
 instance Monad RecordFromSql where
@@ -92,7 +101,7 @@ class FromSql a where
   recordFromSql :: RecordFromSql a
 
 instance Persistable a => FromSql (Record a)  where
-  recordFromSql = recordGetter persistable
+  recordFromSql = recordDeSerializer persistable
 
 instance (FromSql a, FromSql b) => FromSql (a, b)  where
   recordFromSql = recordFromSql <&> recordFromSql
@@ -111,6 +120,34 @@ takeRecord :: FromSql a => [SqlValue] -> (a, [SqlValue])
 takeRecord =  runTakeRecord recordFromSql
 
 
-updateValues :: PrimaryKey a -> [SqlValue] -> [SqlValue]
-updateValues pk vals = hd ++ tl where
-  (hd, _pk:tl) = splitAt (index pk) vals
+data RecordToSql a =
+  RecordToSql
+  { fromRecord :: a -> [SqlValue] }
+
+createRecordToSql' :: (a -> [SqlValue]) -> RecordToSql a
+createRecordToSql' =  RecordToSql
+
+createRecordToSql :: (a -> [SqlValue]) -> RecordToSql (Record a)
+createRecordToSql packF = createRecordToSql' (packF . unRecord)
+
+recordSerializer :: PersistableRecord a -> RecordToSql (Record a)
+recordSerializer =  createRecordToSql . Persistable.fromRecord
+
+
+class ToSql a where
+  recordToSql :: RecordToSql a
+
+instance Persistable a => ToSql (Record a) where
+  recordToSql = recordSerializer persistable
+
+
+updateValues' :: RecordToSql ra
+              -> PrimaryKey ra
+              -> ra
+              -> [SqlValue]
+updateValues' pr pk a = hd ++ tl  where
+  (hd, _pk:tl) = splitAt (index pk) (fromRecord pr a)
+
+updateValues :: (HasPrimaryKey (Record a), ToSql (Record a)) =>
+                a -> [SqlValue]
+updateValues = updateValues' recordToSql primaryKey . record
