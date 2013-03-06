@@ -222,13 +222,12 @@ defineRecordDefault :: String
                     -> Q [Dec]
 defineRecordDefault table fields mayPKey =
   defineRecord
-  (varCamelcaseName $ "fromSql" ++ tn)
-  (varCamelcaseName $ "toSql" ++ tn)
-  (conCamelcaseName tn)
+  (varCamelcaseName $ "from_sql_" ++ table)
+  (varCamelcaseName $ "to_sql_" ++ table)
+  (conCamelcaseName table)
   fields'
   (fmap (`findPrimaryKey` map fst fields) mayPKey)
   where
-    tn = camelcaseUpper table
     fields' = map (\(s, t) -> (varCamelcaseName s, t)) fields
 
 commaed :: [String] -> String
