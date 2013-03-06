@@ -2,7 +2,7 @@
 {-# LANGUAGE FlexibleInstances #-}
 {-# LANGUAGE UndecidableInstances #-}
 
-module Database.HDBC.Record (
+module Database.HDBC.Persistable (
   PersistableRecord, persistableRecord,
   toRecord, fromRecord, width,
 

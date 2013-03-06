@@ -1,5 +1,5 @@
 
-module Database.HDBC.Join (
+module Database.HDBC.RecordJoin (
   Record, unRecord, record,
 
   RecordFromSql, runTakeRecord,
@@ -19,9 +19,9 @@ module Database.HDBC.Join (
   takeRecord,
   ) where
 
-import Database.HDBC.Record
+import Database.HDBC.Persistable
   (PersistableRecord, Persistable, persistable)
-import qualified Database.HDBC.Record as Record
+import qualified Database.HDBC.Persistable as Persistable
 
 import Database.HDBC (SqlValue(SqlNull))
 import Control.Monad (liftM, ap)
@@ -47,7 +47,7 @@ createRecordFromSql takeF = createRecordFromSql' takeF'  where
                in  (record a, vals')
 
 recordGetter :: PersistableRecord a -> RecordFromSql (Record a)
-recordGetter =  createRecordFromSql . Record.takeRecord
+recordGetter =  createRecordFromSql . Persistable.takeRecord
 
 
 instance Monad RecordFromSql where

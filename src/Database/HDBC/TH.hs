@@ -42,7 +42,7 @@ import Language.Haskell.TH
 import qualified Language.Haskell.TH.PprLib as TH
 import qualified Language.Haskell.TH.Syntax as TH
 
-import Database.HDBC.Record
+import Database.HDBC.Persistable
   (persistableRecord, Persistable, persistable)
 
 capitalize :: String -> String
