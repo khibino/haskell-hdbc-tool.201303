@@ -29,14 +29,14 @@ module Database.HDBC.TH (
   ) where
 
 import Data.Char (toUpper, toLower)
-import Data.List (intercalate)
+import Data.List (intercalate, findIndex)
 
 import Database.HDBC (SqlValue, fromSql, toSql)
 
 import Language.Haskell.TH
   (Q, Name, mkName, runQ, Ppr, ppr,
    TypeQ, DecQ, Dec,
-   appsE, conE, varE, listE, stringE,
+   appsE, conE, varE, listE, litE, stringE, integerL,
    listP, varP, wildP,
    conT,
    dataD, sigD, funD, valD,
@@ -47,6 +47,8 @@ import qualified Language.Haskell.TH.Syntax as TH
 
 import Database.HDBC.Persistable
   (persistableRecord, Persistable, persistable)
+import Database.HDBC.RecordJoin
+  (Record, HasPrimaryKey(primaryKey), definePrimaryKey)
 
 capitalize :: String -> String
 capitalize (c:cs) = toUpper c : cs
@@ -152,6 +154,10 @@ definePersistableInstance consFunName' decompFunName' typeName' width =
                       $(varE $ varName decompFunName')
                       width |]
 
+defineHasPrimaryKeyInstance :: ConName -> Int -> Q [Dec]
+defineHasPrimaryKeyInstance typeName' index =
+  [d| instance HasPrimaryKey (Record $(conT $ conName typeName')) where
+        primaryKey = definePrimaryKey $(litE . integerL $ toInteger index) |]
 
 defineRecordDecomposeFunction :: VarName   -- ^ Name of record decompose function.
                               -> ConName   -- ^ Name of record type.
@@ -172,27 +178,35 @@ defineRecord :: VarName
              -> VarName
              -> ConName
              -> [(VarName, TypeQ)]
+             -> Maybe Int
              -> [ConName]
              -> Q [Dec]
-defineRecord cF dF tyC fields drvs = do
+defineRecord cF dF tyC fields mayIdx drvs = do
   typ  <- defineRecordType tyC fields drvs
   let names = map fst fields
       width = length names
-  fromSQL <- defineRecordConstructFunction cF tyC width
-  instSQL <- definePersistableInstance cF dF tyC width
-  toSQL   <- defineRecordDecomposeFunction dF tyC names
-  return $ typ : fromSQL ++ instSQL ++ toSQL
+  fromSQL  <- defineRecordConstructFunction cF tyC width
+  instSQL  <- definePersistableInstance cF dF tyC width
+  mayHasPk <- maybe (return []) (defineHasPrimaryKeyInstance tyC) mayIdx
+  toSQL    <- defineRecordDecomposeFunction dF tyC names
+  return $ typ : fromSQL ++ instSQL ++ mayHasPk ++ toSQL
 
 defineRecordDefault :: String
                     -> [(String, TypeQ)]
+                    -> Maybe String
                     -> [ConName]
                     -> Q [Dec]
-defineRecordDefault table fields =
+defineRecordDefault table fields mayPKey =
   defineRecord
   (varCamelcaseName $ "fromSql" ++ tn)
   (varCamelcaseName $ "toSql" ++ tn)
-  (conCamelcaseName tn) fields'
+  (conCamelcaseName tn)
+  fields'
+  (fmap (`findPk` fields) mayPKey)
   where
+    findPk pk flds = case findIndex ((== pk) . fst) flds of
+      Just idx -> idx
+      Nothing  -> error $ "Specified primary key field not found: " ++ pk
     tn = camelcaseUpper table
     fields' = map (\(s, t) -> (varCamelcaseName s, t)) fields
 
