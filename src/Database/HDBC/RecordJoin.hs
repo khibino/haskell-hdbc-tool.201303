@@ -17,6 +17,8 @@ module Database.HDBC.RecordJoin (
 
   FromSql (recordFromSql),
   takeRecord,
+
+  updateValues
   ) where
 
 import Database.HDBC.Persistable
@@ -107,3 +109,8 @@ instance (HasPrimaryKey a, FromSql a) => FromSql (Maybe a) where
 
 takeRecord :: FromSql a => [SqlValue] -> (a, [SqlValue])
 takeRecord =  runTakeRecord recordFromSql
+
+
+updateValues :: PrimaryKey a -> [SqlValue] -> [SqlValue]
+updateValues pk vals = hd ++ tl where
+  (hd, _pk:tl) = splitAt (index pk) vals
