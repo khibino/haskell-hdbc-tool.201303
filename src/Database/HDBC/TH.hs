@@ -1,6 +1,14 @@
 {-# LANGUAGE TemplateHaskell #-}
 {-# LANGUAGE FlexibleInstances #-}
 
+-- |
+-- Module      : Database.HDBC.TH
+-- Copyright   : 2013 Kei Hibino
+-- License     : BSD3
+--
+-- Maintainer  : ex8k.hibino@gmail.com
+-- Stability   : experimental
+-- Portability : unknown
 module Database.HDBC.TH (
   ConName(conName), toConName,
   VarName(varName), toVarName,
