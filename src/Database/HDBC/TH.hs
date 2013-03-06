@@ -28,14 +28,16 @@ module Database.HDBC.TH (
   defineRecordDecomposeFunction,
 
   defineRecord,
-  defineRecordDefault,
+  defineRecordDefault',
 
   defineConstantSql,
   defineSqlPrimarySelect,
   defineSqlPrimaryUpdate,
   defineSqlInsert,
 
-  defineSqls, defineSqlsDefault
+  defineSqls, defineSqlsDefault,
+
+  defineRecordDefault
   ) where
 
 import Data.Char (toUpper, toLower)
@@ -215,12 +217,12 @@ findPrimaryKey pk = snd . findPrimaryKey' pk
 checkPrimaryKey :: String -> [String] -> String
 checkPrimaryKey pk = fst . findPrimaryKey' pk
 
-defineRecordDefault :: String
-                    -> [(String, TypeQ)]
-                    -> Maybe String
-                    -> [ConName]
-                    -> Q [Dec]
-defineRecordDefault table fields mayPKey =
+defineRecordDefault' :: String
+                     -> [(String, TypeQ)]
+                     -> Maybe String
+                     -> [ConName]
+                     -> Q [Dec]
+defineRecordDefault' table fields mayPKey =
   defineRecord
   (varCamelcaseName $ "from_sql_" ++ table)
   (varCamelcaseName $ "to_sql_" ++ table)
@@ -289,3 +291,14 @@ defineSqlsDefault table fields mayPKey = defineSqls sel upd ins table fields may
   sel = varCamelcaseName $ "select_" ++ table
   upd = varCamelcaseName $ "update_" ++ table
   ins = varCamelcaseName $ "insert_" ++ table
+
+
+defineRecordDefault :: String
+                            -> [(String, TypeQ)]
+                            -> Maybe String
+                            -> [ConName]
+                            -> Q [Dec]
+defineRecordDefault table fields mayPKey derives = do
+  recD <- defineRecordDefault' table fields mayPKey derives
+  sqlD <- defineSqlsDefault table (map fst fields) mayPKey
+  return $ recD ++ sqlD
