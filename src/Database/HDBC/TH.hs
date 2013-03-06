@@ -33,7 +33,9 @@ module Database.HDBC.TH (
   defineConstantSql,
   defineSqlPrimarySelect,
   defineSqlPrimaryUpdate,
-  defineSqlInsert
+  defineSqlInsert,
+
+  defineSqls, defineSqlsDefault
   ) where
 
 import Data.Char (toUpper, toLower)
@@ -119,6 +121,9 @@ derivingData = conCamelcaseName "Data"
 derivingTypable = conCamelcaseName "Typable"
 derivingEq, derivingShow, derivingRead, derivingData, derivingTypable :: ConName
 
+mayDeclare :: (a -> Q [Dec]) -> Maybe a -> Q [Dec]
+mayDeclare =  maybe (return [])
+
 defineRecordType :: ConName            -- ^ Name of the data type of table record type.
                  -> [(VarName, TypeQ)] -- ^ List of fields in the table. Must be legal, properly cased record fields.
                  -> [ConName]          -- ^ Deriving type class names.
@@ -195,9 +200,20 @@ defineRecord cF dF tyC fields mayIdx drvs = do
       width = length names
   fromSQL  <- defineRecordConstructFunction cF tyC width
   instSQL  <- definePersistableInstance cF dF tyC width
-  mayHasPk <- maybe (return []) (defineHasPrimaryKeyInstance tyC) mayIdx
+  mayHasPk <- mayDeclare (defineHasPrimaryKeyInstance tyC) mayIdx
   toSQL    <- defineRecordDecomposeFunction dF tyC names
   return $ typ : fromSQL ++ instSQL ++ mayHasPk ++ toSQL
+
+findPrimaryKey' :: String -> [String] -> (String, Int)
+findPrimaryKey' pk flds = case findIndex (== pk) flds of
+  Just idx -> (pk, idx)
+  Nothing  -> error $ "Specified primary key field not found: " ++ pk
+
+findPrimaryKey :: String -> [String] -> Int
+findPrimaryKey pk = snd . findPrimaryKey' pk
+
+checkPrimaryKey :: String -> [String] -> String
+checkPrimaryKey pk = fst . findPrimaryKey' pk
 
 defineRecordDefault :: String
                     -> [(String, TypeQ)]
@@ -210,11 +226,8 @@ defineRecordDefault table fields mayPKey =
   (varCamelcaseName $ "toSql" ++ tn)
   (conCamelcaseName tn)
   fields'
-  (fmap (`findPk` fields) mayPKey)
+  (fmap (`findPrimaryKey` map fst fields) mayPKey)
   where
-    findPk pk flds = case findIndex ((== pk) . fst) flds of
-      Just idx -> idx
-      Nothing  -> error $ "Specified primary key field not found: " ++ pk
     tn = camelcaseUpper table
     fields' = map (\(s, t) -> (varCamelcaseName s, t)) fields
 
@@ -240,13 +253,13 @@ defineConstantSql name' sqlStr = do
   return [sig, var]
 
 
-defineSqlPrimarySelect :: VarName -> String -> String -> [String] -> Q [Dec]
-defineSqlPrimarySelect name' table pkey fields =
+defineSqlPrimarySelect :: VarName -> String -> [String] -> String -> Q [Dec]
+defineSqlPrimarySelect name' table fields pkey =
   defineConstantSql name'
   $ sqlCat ["SELECT", commaed fields, "FROM", table, "WHERE", pfEq pkey]
 
-defineSqlPrimaryUpdate :: VarName -> String -> String -> [String] -> Q [Dec]
-defineSqlPrimaryUpdate name' table pkey fields =
+defineSqlPrimaryUpdate :: VarName -> String -> [String] -> String -> Q [Dec]
+defineSqlPrimaryUpdate name' table fields pkey =
   defineConstantSql name'
   $ sqlCat ["UPDATE", table,
             "SET", commaed . map pfEq . filter (/= pkey) $ fields,
@@ -257,3 +270,23 @@ defineSqlInsert name' table fields = do
   defineConstantSql name'
   $ sqlCat ["INSERT", "INTO", table, "(", commaed fields, ")",
             "VALUES", "(", commaed (replicate (length fields) "?") , ")"]
+
+defineSqls :: VarName      -- ^ SQL select statement var name
+           -> VarName      -- ^ SQL update statement var name
+           -> VarName      -- ^ SQL insert statement var name
+           -> String       -- ^ Table name string
+           -> [String]     -- ^ Field name strings
+           -> Maybe String -- ^ Primary key field name
+           -> Q [Dec]      -- ^ SQL statement String declarations
+defineSqls sel upd ins table fields mayPKey = do
+  let mayPKey' = fmap (`checkPrimaryKey` fields) mayPKey
+  selD <- mayDeclare (defineSqlPrimarySelect sel table fields) mayPKey'
+  updD <- mayDeclare (defineSqlPrimaryUpdate upd table fields) mayPKey'
+  insD <- defineSqlInsert ins table fields
+  return $ concat [selD, updD, insD]
+
+defineSqlsDefault :: String -> [String] -> Maybe String -> Q [Dec]
+defineSqlsDefault table fields mayPKey = defineSqls sel upd ins table fields mayPKey  where
+  sel = varCamelcaseName $ "select_" ++ table
+  upd = varCamelcaseName $ "update_" ++ table
+  ins = varCamelcaseName $ "insert_" ++ table
