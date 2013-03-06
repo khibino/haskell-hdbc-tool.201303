@@ -13,7 +13,7 @@ module Database.HDBC.TH (
   fieldInfo', fieldInfo,
   defineRecordType,
   defineRecordConstructFunction,
-  defineInstanceOfFromSql,
+  definePersistableInstance,
   defineRecordDecomposeFunction,
 
   defineRecord,
@@ -42,7 +42,8 @@ import Language.Haskell.TH
 import qualified Language.Haskell.TH.PprLib as TH
 import qualified Language.Haskell.TH.Syntax as TH
 
-import Database.HDBC.Join (createRecordFromSql, FromSql(recordFromSql))
+import Database.HDBC.Record
+  (persistableRecord, Persistable, persistable)
 
 capitalize :: String -> String
 capitalize (c:cs) = toUpper c : cs
@@ -132,10 +133,13 @@ defineRecordConstructFunction funName' typeName' width = do
             [] ]
   return [sig, var]
 
-defineInstanceOfFromSql :: VarName -> ConName -> Int -> Q [Dec]
-defineInstanceOfFromSql funName' typeName' width =
-  [d| instance FromSql $(conT $ conName typeName') where
-        recordFromSql = createRecordFromSql $(varE $ varName funName') width |]
+definePersistableInstance :: VarName -> VarName -> ConName -> Int -> Q [Dec]
+definePersistableInstance consFunName' decompFunName' typeName' width =
+  [d| instance Persistable $(conT $ conName typeName') where
+        persistable = persistableRecord
+                      $(varE $ varName consFunName')
+                      $(varE $ varName decompFunName')
+                      width |]
 
 
 defineRecordDecomposeFunction :: VarName   -- ^ Name of record decompose function.
@@ -163,7 +167,7 @@ defineRecord cF dF tyC fields = do
   let names = map fst fields
       width = length names
   fromSQL <- defineRecordConstructFunction cF tyC width
-  instSQL <- defineInstanceOfFromSql cF tyC width
+  instSQL <- definePersistableInstance cF dF tyC width
   toSQL   <- defineRecordDecomposeFunction dF tyC names
   return $ typ : fromSQL ++ instSQL ++ toSQL
 

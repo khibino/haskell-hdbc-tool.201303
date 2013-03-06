@@ -1,64 +1,97 @@
-{-# LANGUAGE FlexibleContexts #-}
 
 module Database.HDBC.Join (
-  RecordFromSql, createRecordFromSql,
-  takeRecord', width, runToRecord,
+  Record, unRecord, record,
 
-  singleton, (<&>),
+  RecordFromSql, runTakeRecord,
+  createRecordFromSql,
+
+  recordGetter,
+
+  (<&>),
+
+  PrimaryKey, definePrimaryKey, index,
+
+  HasPrimaryKey (primaryKey),
 
   outer,
 
-  PrimaryKey, createPrimaryKey, index,
-
   FromSql (recordFromSql),
   takeRecord,
-) where
+  ) where
 
-import Data.Convertible (Convertible)
-import Database.HDBC (SqlValue(SqlNull), fromSql)
+import Database.HDBC.Record
+  (PersistableRecord, Persistable, persistable)
+import qualified Database.HDBC.Record as Record
 
-data RecordFromSql a =
+import Database.HDBC (SqlValue(SqlNull))
+import Control.Monad (liftM, ap)
+import Control.Applicative ((<$>), Applicative(pure, (<*>)))
+
+
+newtype Record a = Record { unRecord :: a }
+
+record :: a -> Record a
+record = Record
+
+
+newtype RecordFromSql a =
   RecordFromSql
-  { runToRecord :: [SqlValue] -> a
-  , width     :: !Int
-  }
+  { runTakeRecord :: [SqlValue] -> (a, [SqlValue]) }
 
-createRecordFromSql :: ([SqlValue] -> a) -> Int -> RecordFromSql a
-createRecordFromSql =  RecordFromSql
+createRecordFromSql' :: ([SqlValue] -> (a, [SqlValue])) -> RecordFromSql a
+createRecordFromSql' =  RecordFromSql
 
-takeRecord' :: RecordFromSql a -> [SqlValue] -> (a, [SqlValue])
-takeRecord' rec vals = (runToRecord rec va, vr) where
-  (va, vr) = splitAt (width rec) vals
+createRecordFromSql :: ([SqlValue] -> (a, [SqlValue])) -> RecordFromSql (Record a)
+createRecordFromSql takeF = createRecordFromSql' takeF'  where
+  takeF' vals = let (a, vals') = takeF vals
+               in  (record a, vals')
 
-singleton :: Convertible SqlValue a => RecordFromSql a
-singleton =  RecordFromSql { runToRecord = fromSql . head, width = 1 }
+recordGetter :: PersistableRecord a -> RecordFromSql (Record a)
+recordGetter =  createRecordFromSql . Record.takeRecord
+
+
+instance Monad RecordFromSql where
+  return a = createRecordFromSql' ((,) a)
+  ma >>= fmb =
+    createRecordFromSql' (\vals ->
+                           let (a, vals') = runTakeRecord ma vals
+                           in  runTakeRecord (fmb a) vals')
+
+instance Functor RecordFromSql where
+  fmap = liftM
+
+instance Applicative RecordFromSql where
+  pure  = return
+  (<*>) = ap
 
 (<&>) :: RecordFromSql a -> RecordFromSql b -> RecordFromSql (a, b)
-a <&> b = RecordFromSql { runToRecord = toR, width = width a + width b } where
-  toR vals = let (ra, vals') = takeRecord' a vals
-             in  (ra, fst $ takeRecord' b vals')
+a <&> b = (,) <$> a <*> b
 
 infixl 4 <&>
 
+
 newtype PrimaryKey a = PrimaryKey { index :: Int }
 
-createPrimaryKey :: Int -> PrimaryKey a
-createPrimaryKey = PrimaryKey
+definePrimaryKey :: Int -> PrimaryKey a
+definePrimaryKey = PrimaryKey
 
 outer :: RecordFromSql a -> PrimaryKey a -> RecordFromSql (Maybe a)
-outer rec pkey = RecordFromSql { runToRecord = mayToRec, width = width rec } where
-  mayToRec vals | vals !! index pkey /= SqlNull = Just . fst $ takeRecord' rec vals
-                | otherwise                  = Nothing
+outer rec pkey = createRecordFromSql' mayToRec where
+  mayToRec vals
+    | vals !! index pkey /= SqlNull = (Just a,  vals')
+    | otherwise                     = (Nothing, vals')  where
+      (a, vals') = runTakeRecord rec vals
 
 
 class FromSql a where
   recordFromSql :: RecordFromSql a
 
-instance (FromSql a, FromSql b) => FromSql (a, b) where
+instance Persistable a => FromSql (Record a)  where
+  recordFromSql = recordGetter persistable
+
+instance (FromSql a, FromSql b) => FromSql (a, b)  where
   recordFromSql = recordFromSql <&> recordFromSql
 
-
--- newtype PrimaryKey a = PrimaryKey { index :: Int }
 
 class HasPrimaryKey a where
   primaryKey :: PrimaryKey a
@@ -66,6 +99,5 @@ class HasPrimaryKey a where
 instance (HasPrimaryKey a, FromSql a) => FromSql (Maybe a) where
   recordFromSql = outer recordFromSql $ primaryKey
 
-
 takeRecord :: FromSql a => [SqlValue] -> (a, [SqlValue])
-takeRecord =  takeRecord' recordFromSql
+takeRecord =  runTakeRecord recordFromSql
