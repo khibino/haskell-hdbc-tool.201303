@@ -9,7 +9,7 @@ module Database.HDBC.RecordJoin (
 
   (<&>),
 
-  PrimaryKey, definePrimaryKey, index,
+  PrimaryKey, definePrimaryKey, leftPrimaryKey, index,
 
   HasPrimaryKey (primaryKey),
 
@@ -75,6 +75,9 @@ newtype PrimaryKey a = PrimaryKey { index :: Int }
 definePrimaryKey :: Int -> PrimaryKey a
 definePrimaryKey = PrimaryKey
 
+leftPrimaryKey :: PrimaryKey a -> PrimaryKey (a, b)
+leftPrimaryKey pa = definePrimaryKey (index pa)
+
 outer :: RecordFromSql a -> PrimaryKey a -> RecordFromSql (Maybe a)
 outer rec pkey = createRecordFromSql' mayToRec where
   mayToRec vals
@@ -95,6 +98,9 @@ instance (FromSql a, FromSql b) => FromSql (a, b)  where
 
 class HasPrimaryKey a where
   primaryKey :: PrimaryKey a
+  
+instance HasPrimaryKey a => HasPrimaryKey (a, b) where
+  primaryKey = leftPrimaryKey primaryKey
 
 instance (HasPrimaryKey a, FromSql a) => FromSql (Maybe a) where
   recordFromSql = outer recordFromSql $ primaryKey
