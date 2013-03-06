@@ -11,6 +11,9 @@ module Database.HDBC.TH (
   pprQ,
 
   fieldInfo', fieldInfo,
+
+  derivingEq, derivingShow, derivingRead, derivingData, derivingTypable,
+
   defineRecordType,
   defineRecordConstructFunction,
   definePersistableInstance,
@@ -99,12 +102,20 @@ fieldInfo n' t' = (v, t) where
   (v, (_n, t)) = fieldInfo' n' t'
 
 
+derivingEq   = conCamelcaseName "Eq"
+derivingShow = conCamelcaseName "Show"
+derivingRead = conCamelcaseName "Read"
+derivingData = conCamelcaseName "Data"
+derivingTypable = conCamelcaseName "Typable"
+derivingEq, derivingShow, derivingRead, derivingData, derivingTypable :: ConName
+
 defineRecordType :: ConName            -- ^ Name of the data type of table record type.
                  -> [(VarName, TypeQ)] -- ^ List of fields in the table. Must be legal, properly cased record fields.
+                 -> [ConName]          -- ^ Deriving type class names.
                  -> DecQ               -- ^ The data type record declaration.
-defineRecordType typeName' fields = do
+defineRecordType typeName' fields derives = do
   let typeName = conName typeName'
-  dataD (cxt []) typeName [] [recC typeName (map fld fields)] []
+  dataD (cxt []) typeName [] [recC typeName (map fld fields)] (map conName derives)
   where
     fld (n, tq) = varStrictType (varName n) (strictType isStrict tq)
 
@@ -161,9 +172,10 @@ defineRecord :: VarName
              -> VarName
              -> ConName
              -> [(VarName, TypeQ)]
+             -> [ConName]
              -> Q [Dec]
-defineRecord cF dF tyC fields = do
-  typ  <- defineRecordType tyC fields
+defineRecord cF dF tyC fields drvs = do
+  typ  <- defineRecordType tyC fields drvs
   let names = map fst fields
       width = length names
   fromSQL <- defineRecordConstructFunction cF tyC width
@@ -173,6 +185,7 @@ defineRecord cF dF tyC fields = do
 
 defineRecordDefault :: String
                     -> [(String, TypeQ)]
+                    -> [ConName]
                     -> Q [Dec]
 defineRecordDefault table fields =
   defineRecord

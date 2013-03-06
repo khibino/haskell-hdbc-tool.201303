@@ -28,7 +28,7 @@ import Control.Monad (liftM, ap)
 import Control.Applicative ((<$>), Applicative(pure, (<*>)))
 
 
-newtype Record a = Record { unRecord :: a }
+newtype Record a = Record { unRecord :: a } deriving (Show, Read, Eq)
 
 record :: a -> Record a
 record = Record
