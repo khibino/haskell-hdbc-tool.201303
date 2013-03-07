@@ -169,6 +169,12 @@ defineRecordConstructFunction funName' typeName' width = do
             [] ]
   return [sig, var]
 
+simpleValD :: Name -> TypeQ -> ExpQ -> Q [Dec]
+simpleValD var typ expr =  do
+  sig <- sigD var typ
+  val <- valD (varP var) (normalB expr) []
+  return [sig, val]
+
 defineTableInfo :: VarName -> String
                 -> VarName -> [String]
                 -> VarName -> Int
@@ -177,11 +183,10 @@ defineTableInfo tableVar' table fieldsVar' fields widthVar' width = do
   let tableVar = varName tableVar'
       fieldsVar = varName fieldsVar'
       widthVar = varName widthVar'
-  fsig <- sigD fieldsVar [t| [String] |]
-  fval <- valD (varP fieldsVar) (normalB [| $(listE $ map stringE fields) |] ) []
-  wsig <- sigD widthVar [t| Int |]
-  wval <- valD (varP widthVar) (normalB [| $(integralE $ width) |]) []
-  return [wsig, wval, fsig, fval]
+  tableQ  <- simpleValD tableVar  [t| String |]   [| $(stringE table) |]
+  fieldsQ <- simpleValD fieldsVar [t| [String] |] [| $(listE $ map stringE fields) |]
+  widthQ  <- simpleValD widthVar  [t| Int |]      [| $(integralE $ width) |]
+  return $ concat [tableQ, fieldsQ, widthQ]
 
 definePersistableInstance :: VarName -> ConName -> VarName -> VarName -> Int -> Q [Dec]
 definePersistableInstance widthVar' typeName' consFunName' decompFunName' width = do
