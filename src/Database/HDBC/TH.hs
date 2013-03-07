@@ -61,6 +61,9 @@ import Database.HDBC.Persistable
   (persistableRecord, Persistable, persistable)
 import Database.HDBC.RecordJoin
   (Record, HasPrimaryKey(primaryKey), definePrimaryKey)
+import Language.SQL.SqlWord (SqlWord(..), placeholderEq)
+import qualified Language.SQL.SqlWord as SQL
+
 
 capitalize :: String -> String
 capitalize (c:cs) = toUpper c : cs
@@ -257,20 +260,27 @@ defineConstantSql name' sqlStr = do
 defineSqlPrimarySelect :: VarName -> String -> [String] -> String -> Q [Dec]
 defineSqlPrimarySelect name' table fields pkey =
   defineConstantSql name'
-  $ sqlCat ["SELECT", commaed fields, "FROM", table, "WHERE", pfEq pkey]
+  . SQL.wordsConcat
+  $ SELECT : SQL.commaed fields'
+  ++ [FROM, SQL.word table, WHERE, placeholderEq (SQL.word pkey)]
+  where fields' = map SQL.word fields
 
 defineSqlPrimaryUpdate :: VarName -> String -> [String] -> String -> Q [Dec]
 defineSqlPrimaryUpdate name' table fields pkey =
   defineConstantSql name'
-  $ sqlCat ["UPDATE", table,
-            "SET", commaed . map pfEq . filter (/= pkey) $ fields,
-            "WHERE", pfEq pkey]
+  . SQL.wordsConcat
+  $ UPDATE : SQL.word table : SET : SQL.commaed assignments
+  ++ [WHERE, placeholderEq (SQL.word pkey)]
+  where assignments = map (placeholderEq . SQL.word) . filter (/= pkey) $ fields
 
 defineSqlInsert :: VarName -> String -> [String] -> Q [Dec]
 defineSqlInsert name' table fields = do
   defineConstantSql name'
-  $ sqlCat ["INSERT", "INTO", table, "(", commaed fields, ")",
-            "VALUES", "(", commaed (replicate (length fields) "?") , ")"]
+  . SQL.wordsConcat
+  $ INSERT : INTO : SQL.word table : SQL.parened (SQL.commaed fields')
+  ++ VALUES : SQL.parened (SQL.commaed pfs)
+    where fields' = map SQL.word fields
+          pfs     = replicate (length fields) (SQL.word "?")
 
 defineSqls :: VarName      -- ^ SQL select statement var name
            -> VarName      -- ^ SQL update statement var name

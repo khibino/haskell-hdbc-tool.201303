@@ -11,11 +11,15 @@
 module Language.SQL.SqlWord (
   SqlWord (..),
 
+  word,
   wordShow, wordsConcat,
 
   commaed', commaed,
 
-  parened', parened
+  parened', parened,
+
+  stringMap,
+  placeholderEq
   ) where
 
 import Data.String (IsString(fromString))
@@ -58,6 +62,9 @@ instance IsString SqlWord where
    found  Nothing      s = Sequence s
    found (Just (w, _)) _ = w
 
+word :: String -> SqlWord
+word =  Sequence
+
 wordShow :: SqlWord -> String
 wordShow =  d  where
   d (Sequence s)   = s
@@ -78,3 +85,10 @@ parened' ws = ("(" :) . (ws ++) . ([")"] ++)
 
 parened :: [SqlWord] -> [SqlWord]
 parened =  (`parened'` [])
+
+
+stringMap :: (String -> String) -> SqlWord -> SqlWord
+stringMap f = word . f . wordShow
+
+placeholderEq :: SqlWord -> SqlWord
+placeholderEq =  stringMap (++ " = ?")
