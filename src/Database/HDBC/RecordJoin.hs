@@ -25,7 +25,8 @@ module Database.HDBC.RecordJoin (
   outer,
 
   FromSql (recordFromSql),
-  takeRecord,
+  takeRecord, takeSimpleRecord,
+  toRecord, toSimpleRecord,
 
   RecordToSql, fromRecord,
   createRecordToSql,
@@ -126,6 +127,16 @@ instance (HasPrimaryKey a, FromSql a) => FromSql (Maybe a) where
 
 takeRecord :: FromSql a => [SqlValue] -> (a, [SqlValue])
 takeRecord =  runTakeRecord recordFromSql
+
+takeSimpleRecord :: FromSql (Record a) => [SqlValue] -> (a, [SqlValue])
+takeSimpleRecord vals = (unRecord ra, vals')  where
+  (ra, vals') = takeRecord vals
+
+toRecord :: FromSql a => [SqlValue] -> a
+toRecord = fst . takeRecord
+
+toSimpleRecord :: FromSql (Record a) => [SqlValue] -> a
+toSimpleRecord =  unRecord . toRecord
 
 
 data RecordToSql a =
