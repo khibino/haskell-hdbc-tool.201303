@@ -47,7 +47,7 @@ import Database.HDBC (SqlValue, fromSql, toSql)
 
 import Language.Haskell.TH
   (Q, Name, mkName, runQ, Ppr, ppr,
-   TypeQ, DecQ, Dec,
+   TypeQ, ExpQ, DecQ, Dec,
    appsE, conE, varE, listE, litE, stringE, integerL,
    listP, varP, wildP,
    conT,
@@ -58,7 +58,9 @@ import qualified Language.Haskell.TH.PprLib as TH
 import qualified Language.Haskell.TH.Syntax as TH
 
 import Database.HDBC.Persistable
-  (persistableRecord, Persistable, persistable)
+  (PersistableRecord, persistableRecord,
+   Persistable, persistable)
+import qualified Database.HDBC.Persistable as P
 import Database.HDBC.RecordJoin
   (Record, HasPrimaryKey(primaryKey), definePrimaryKey)
 import Language.SQL.SqlWord (SqlWord(..), placeholderEq)
@@ -93,7 +95,7 @@ splitForName str
     (tk, rest) = span (`elem` nameChars) str
 
 camelcaseUpper :: String -> String
-camelcaseUpper =  concat . map capitalize . splitForName
+camelcaseUpper =  concat . map capitalize . splitForName . map toLower
 
 -- camelcaseLower :: String -> String
 -- camelcaseLower =  unCapitalize . camelcaseUpper
@@ -128,6 +130,9 @@ derivingEq, derivingShow, derivingRead, derivingData, derivingTypable :: ConName
 
 mayDeclare :: (a -> Q [Dec]) -> Maybe a -> Q [Dec]
 mayDeclare =  maybe (return [])
+
+integralE :: Integral a => a -> ExpQ
+integralE =  litE . integerL . toInteger
 
 defineRecordType :: ConName            -- ^ Name of the data type of table record type.
                  -> [(VarName, TypeQ)] -- ^ List of fields in the table. Must be legal, properly cased record fields.
@@ -164,18 +169,32 @@ defineRecordConstructFunction funName' typeName' width = do
             [] ]
   return [sig, var]
 
-definePersistableInstance :: VarName -> VarName -> ConName -> Int -> Q [Dec]
-definePersistableInstance consFunName' decompFunName' typeName' width =
+defineTableInfo :: VarName -> String
+                -> VarName -> [String]
+                -> VarName -> Int
+                -> Q [Dec]
+defineTableInfo tableVar' table fieldsVar' fields widthVar' width = do
+  let tableVar = varName tableVar'
+      fieldsVar = varName fieldsVar'
+      widthVar = varName widthVar'
+  fsig <- sigD fieldsVar [t| [String] |]
+  fval <- valD (varP fieldsVar) (normalB [| $(listE $ map stringE fields) |] ) []
+  wsig <- sigD widthVar [t| Int |]
+  wval <- valD (varP widthVar) (normalB [| $(integralE $ width) |]) []
+  return [wsig, wval, fsig, fval]
+
+definePersistableInstance :: VarName -> ConName -> VarName -> VarName -> Int -> Q [Dec]
+definePersistableInstance widthVar' typeName' consFunName' decompFunName' width = do
   [d| instance Persistable $(conT $ conName typeName') where
         persistable = persistableRecord
-                      $(varE $ varName consFunName')
-                      $(varE $ varName decompFunName')
-                      width |]
+                     $(varE $ varName consFunName')
+                     $(varE $ varName decompFunName')
+                     $(varE $ varName widthVar') |]
 
 defineHasPrimaryKeyInstance :: ConName -> Int -> Q [Dec]
 defineHasPrimaryKeyInstance typeName' index =
   [d| instance HasPrimaryKey (Record $(conT $ conName typeName')) where
-        primaryKey = definePrimaryKey $(litE . integerL $ toInteger index) |]
+        primaryKey = definePrimaryKey $(integralE index) |]
 
 defineRecordDecomposeFunction :: VarName   -- ^ Name of record decompose function.
                               -> ConName   -- ^ Name of record type.
@@ -192,22 +211,23 @@ defineRecordDecomposeFunction funName' typeName' fields = do
                         [] ]
   return [sig, var]
 
-defineRecord :: VarName
-             -> VarName
-             -> ConName
-             -> [(VarName, TypeQ)]
+defineRecord :: (VarName, VarName)
+             -> (ConName, String)
+             -> (VarName, VarName, VarName)
+             -> [((VarName, TypeQ), String)]
              -> Maybe Int
              -> [ConName]
              -> Q [Dec]
-defineRecord cF dF tyC fields mayIdx drvs = do
-  typ  <- defineRecordType tyC fields drvs
-  let names = map fst fields
-      width = length names
+defineRecord (cF, dF) (tyC, table) (tableN, fldsN, widthN) schemas' mayIdx drvs = do
+  let schemas = map fst schemas'
+  typ  <- defineRecordType tyC schemas drvs
+  let width = length schemas'
   fromSQL  <- defineRecordConstructFunction cF tyC width
-  instSQL  <- definePersistableInstance cF dF tyC width
+  toSQL    <- defineRecordDecomposeFunction dF tyC (map fst schemas)
+  tableI   <- defineTableInfo tableN table fldsN (map snd schemas') widthN width
+  instSQL  <- definePersistableInstance widthN tyC cF dF width
   mayHasPk <- mayDeclare (defineHasPrimaryKeyInstance tyC) mayIdx
-  toSQL    <- defineRecordDecomposeFunction dF tyC names
-  return $ typ : fromSQL ++ instSQL ++ mayHasPk ++ toSQL
+  return $ typ : fromSQL ++ toSQL ++ tableI ++ instSQL ++ mayHasPk
 
 findPrimaryKey' :: String -> [String] -> (String, Int)
 findPrimaryKey' pk flds = case findIndex (== pk) flds of
@@ -227,13 +247,16 @@ defineRecordDefault' :: String
                      -> Q [Dec]
 defineRecordDefault' table fields mayPKey =
   defineRecord
-  (varCamelcaseName $ "from_sql_" ++ table)
-  (varCamelcaseName $ "to_sql_" ++ table)
-  (conCamelcaseName table)
+  (varCamelcaseName $ "from_sql_of_" ++ table,
+   varCamelcaseName $ "to_sql_of_" ++ table)
+  (conCamelcaseName table, table)
+  (varCamelcaseName   table,
+   varCamelcaseName $ "fields_of_" ++ table,
+   varCamelcaseName $ "width_of_" ++ table)
   fields'
   (fmap (`findPrimaryKey` map fst fields) mayPKey)
   where
-    fields' = map (\(s, t) -> (varCamelcaseName s, t)) fields
+    fields' = map (\(s, t) -> ((varCamelcaseName s, t), s)) fields
 
 commaed :: [String] -> String
 commaed = intercalate ", "
@@ -304,10 +327,10 @@ defineSqlsDefault table fields mayPKey = defineSqls sel upd ins table fields may
 
 
 defineRecordDefault :: String
-                            -> [(String, TypeQ)]
-                            -> Maybe String
-                            -> [ConName]
-                            -> Q [Dec]
+                    -> [(String, TypeQ)]
+                    -> Maybe String
+                    -> [ConName]
+                    -> Q [Dec]
 defineRecordDefault table fields mayPKey derives = do
   recD <- defineRecordDefault' table fields mayPKey derives
   sqlD <- defineSqlsDefault table (map fst fields) mayPKey
